@@ -1,0 +1,132 @@
+openapi: 3.0.3
+info:
+  title: Avitolog Auth API
+  version: 1.0.0
+  description: |
+    Authentication endpoints for the Avitolog service. Uses JWT via Authorization header only.
+    Bearer tokens are returned in JSON body and must be supplied as:
+
+    Authorization: Bearer <token>
+servers:
+  - url: /api
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    RegisterRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          maxLength: 150
+        password:
+          type: string
+          minLength: 8
+        email:
+          type: string
+          format: email
+          nullable: true
+    RegisterResponse:
+      type: object
+      required: [id, username, token]
+      properties:
+        id:
+          type: integer
+        username:
+          type: string
+        token:
+          type: string
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+    LoginResponse:
+      type: object
+      required: [id, username, token]
+      properties:
+        id:
+          type: integer
+        username:
+          type: string
+        token:
+          type: string
+    MeResponse:
+      type: object
+      required: [id, username, is_staff, is_superuser, is_blocked]
+      properties:
+        id:
+          type: integer
+        username:
+          type: string
+        is_staff:
+          type: boolean
+        is_superuser:
+          type: boolean
+        is_blocked:
+          type: boolean
+paths:
+  /auth/register:
+    post:
+      tags: [auth]
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterResponse'
+        '400':
+          description: Validation error
+        '409':
+          description: Username already taken
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: Login with username and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          description: Validation error
+        '401':
+          description: Invalid credentials or user blocked
+  /auth/me:
+    get:
+      tags: [auth]
+      summary: Get current user profile
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current user profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+        '401':
+          description: Unauthorized

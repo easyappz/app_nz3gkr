@@ -1,0 +1,11 @@
+openapi: 3.0.3
+info:
+  title: Avitolog Frontend API Schema
+  version: 0.0.1
+  description: |
+    Placeholder schema for frontend integration. Endpoints will be added
+    and kept in sync with the backend as they appear.
+servers:
+  - url: /
+paths: {}
+components: {}

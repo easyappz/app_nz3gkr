@@ -1,100 +1,418 @@
 openapi: 3.0.3
 info:
   title: Avitolog API
-  version: "1.0.0"
+  version: 1.0.0
   description: |
-    REST API for Avitolog: listings, ingest-by-URL, comments, and moderation.
-    Auth uses Bearer JWT in Authorization header only.
+    REST API for "Авитолог" — commenting on Avito listings.
+
+    - Authentication: JWT via Authorization header: `Authorization: Bearer <token>`
+    - All timestamps are in ISO 8601 (UTC)
+    - Trailing slashes in paths strictly follow Django routes
 servers:
-  - url: /api
+  - url: /
+    description: Relative to current host
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    ErrorDetail:
+      type: object
+      properties:
+        detail:
+          type: string
+      required: [detail]
+      example:
+        detail: Invalid username or password
+    ValidationError:
+      type: object
+      additionalProperties:
+        type: array
+        items:
+          type: string
+      example:
+        username: ["This field is required."]
+        password: ["Ensure this field has at least 8 characters."]
+    RegisterRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          maxLength: 150
+        password:
+          type: string
+          minLength: 8
+        email:
+          type: string
+          format: email
+      required: [username, password]
+      example:
+        username: ivan
+        password: supersecret123
+        email: ivan@example.com
+    LoginRequest:
+      type: object
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+      required: [username, password]
+      example:
+        username: ivan
+        password: supersecret123
+    AuthTokenResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        username:
+          type: string
+        token:
+          type: string
+      required: [id, username, token]
+      example:
+        id: 12
+        username: ivan
+        token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.
+    Me:
+      type: object
+      properties:
+        id:
+          type: integer
+        username:
+          type: string
+        is_staff:
+          type: boolean
+        is_superuser:
+          type: boolean
+        is_blocked:
+          type: boolean
+      required: [id, username, is_staff, is_superuser, is_blocked]
+      example:
+        id: 12
+        username: ivan
+        is_staff: false
+        is_superuser: false
+        is_blocked: false
+    Listing:
+      type: object
+      properties:
+        id: { type: integer }
+        url: { type: string }
+        title: { type: string }
+        image_url: { type: string }
+        price:
+          type: string
+          description: Decimal represented as string, e.g. "19990.00"
+        description: { type: string }
+        published_at:
+          type: string
+          format: date-time
+          nullable: true
+        views_count: { type: integer }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+      required: [id, url, title, image_url, price, description, published_at, views_count, created_at, updated_at]
+      example:
+        id: 101
+        url: https://www.avito.ru/moskva/telefony/iphone_14_pro_512gb_123456789
+        title: iPhone 14 Pro 512GB
+        image_url: https://example.cdn/iphone.jpg
+        price: "79990.00"
+        description: Отличное состояние, полный комплект
+        published_at: 2024-08-21T11:25:00Z
+        views_count: 3123
+        created_at: 2025-11-02T00:30:00Z
+        updated_at: 2025-11-02T00:30:00Z
+    Comment:
+      type: object
+      properties:
+        id: { type: integer }
+        listing: { type: integer, description: Listing id }
+        user_id: { type: integer }
+        user_username: { type: string }
+        text: { type: string }
+        created_at: { type: string, format: date-time }
+      required: [id, listing, user_id, user_username, text, created_at]
+      example:
+        id: 55
+        listing: 101
+        user_id: 12
+        user_username: ivan
+        text: Неплохая цена!
+        created_at: 2025-11-02T00:40:00Z
+    IngestUrlRequest:
+      type: object
+      properties:
+        url:
+          type: string
+          description: Avito listing URL (only avito.ru)
+      required: [url]
+      example:
+        url: https://www.avito.ru/moskva/telefony/iphone_14_pro_512gb_123456789
+    CreateCommentRequest:
+      type: object
+      properties:
+        text:
+          type: string
+          maxLength: 5000
+      required: [text]
+      example:
+        text: Отличное предложение, забираю!
+    UserProfile:
+      type: object
+      properties:
+        user_id: { type: integer }
+        username: { type: string }
+        is_blocked: { type: boolean }
+        blocked_reason:
+          type: string
+          nullable: true
+        blocked_at:
+          type: string
+          format: date-time
+          nullable: true
+      required: [user_id, username, is_blocked]
+      example:
+        user_id: 34
+        username: moderator
+        is_blocked: true
+        blocked_reason: Спам
+        blocked_at: 2025-11-02T00:50:00Z
+    BlockUserRequest:
+      type: object
+      properties:
+        user_id: { type: integer }
+        reason:
+          type: string
+          description: Optional reason
+      required: [user_id]
+      example:
+        user_id: 34
+        reason: Спам и оскорбления
+    UnblockUserRequest:
+      type: object
+      properties:
+        user_id: { type: integer }
+      required: [user_id]
+      example:
+        user_id: 34
 paths:
-  /listings/:
+  /api/auth/register:
+    post:
+      tags: [auth]
+      summary: Register a new user
+      description: Register a new user and receive JWT access token.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokenResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '409':
+          description: Username conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+              examples:
+                conflict:
+                  value:
+                    detail: Username is already taken
+        '422':
+          description: Unprocessable Entity (not used by backend; reserved)
+  /api/auth/login:
+    post:
+      tags: [auth]
+      summary: Login
+      description: Login with username and password to receive JWT token.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokenResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Invalid credentials or user blocked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+              examples:
+                invalid:
+                  value:
+                    detail: Invalid username or password
+                blocked:
+                  value:
+                    detail: User is blocked
+        '422':
+          description: Unprocessable Entity (not used by backend; reserved)
+  /api/auth/me:
     get:
+      tags: [auth]
+      summary: Get current user profile
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current user info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Me'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+  /api/listings/:
+    get:
+      tags: [listings]
       summary: Get most viewed listings
-      description: |
-        Returns most viewed listings ordered by views_count desc. Optional `limit` query param (default 20, max 50).
+      description: Returns listings ordered by views_count desc. Optional query param `limit` (1..50, default 20).
       parameters:
         - in: query
           name: limit
-          required: false
           schema:
             type: integer
             minimum: 1
             maximum: 50
             default: 20
+          required: false
+          description: Max number of listings to return
       responses:
         '200':
-          description: OK
+          description: List of listings
           content:
             application/json:
               schema:
                 type: array
                 items:
                   $ref: '#/components/schemas/Listing'
-  /listings/{{id}}/:
+  /api/listings/{id}/:
     get:
+      tags: [listings]
       summary: Get listing by id
-      description: Returns a listing by id and increments its views_count.
+      description: Returns a listing and increments its views_count.
       parameters:
         - in: path
           name: id
           required: true
-          schema: { type: integer }
+          schema:
+            type: integer
       responses:
         '200':
-          description: OK
+          description: Listing
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Listing'
         '404':
-          description: Listing not found
-  /listings/ingest-url/:
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+              examples:
+                notFound:
+                  value:
+                    detail: Listing not found
+  /api/listings/ingest-url/:
     post:
-      summary: Create or update listing by Avito URL
+      tags: [listings]
+      summary: Ingest or refresh listing by Avito URL
       description: |
-        If a listing with the provided Avito URL exists, its basic fields are updated from Avito metadata; otherwise it is created.
-        Allowed domain: avito.ru only.
+        Create or update listing by Avito URL. If listing exists, refresh base fields.
+        Only `avito.ru` domain is allowed.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required: [url]
-              properties:
-                url:
-                  type: string
-                  maxLength: 500
-                  example: https://www.avito.ru/moskva/bytovaya_elektronika/iphone_14_pro_123456789
+              $ref: '#/components/schemas/IngestUrlRequest'
       responses:
         '201':
-          description: Created
+          description: Created new listing
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Listing'
         '200':
-          description: Updated/Existing
+          description: Listing existed and was refreshed
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Listing'
         '400':
           description: Invalid URL or domain
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+              examples:
+                invalidDomain:
+                  value:
+                    detail: Only avito.ru URLs are allowed
+                invalidBody:
+                  value:
+                    url: ["This field is required."]
         '502':
           description: Failed to fetch Avito
-  /listings/{{id}}/comments/:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+              examples:
+                upstream:
+                  value:
+                    detail: Failed to fetch Avito
+        '422':
+          description: Unprocessable Entity (not used by backend; reserved)
+  /api/listings/{id}/comments/:
     get:
-      summary: List comments for listing
+      tags: [comments]
+      summary: List comments for a listing
       parameters:
         - in: path
           name: id
           required: true
-          schema: { type: integer }
+          schema:
+            type: integer
       responses:
         '200':
-          description: OK
+          description: Comments (newest first)
           content:
             application/json:
               schema:
@@ -103,142 +421,220 @@ paths:
                   $ref: '#/components/schemas/Comment'
         '404':
           description: Listing not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+              examples:
+                notFound:
+                  value:
+                    detail: Listing not found
     post:
+      tags: [comments]
+      summary: Create a comment for a listing
       security:
         - bearerAuth: []
-      summary: Create comment for listing
-      description: Auth required and user must not be blocked. Profanity is censored.
       parameters:
         - in: path
           name: id
           required: true
-          schema: { type: integer }
+          schema:
+            type: integer
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required: [text]
-              properties:
-                text:
-                  type: string
-                  maxLength: 5000
-                  example: Отличное объявление!
+              $ref: '#/components/schemas/CreateCommentRequest'
       responses:
         '201':
-          description: Created
+          description: Comment created
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Comment'
         '400':
           description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
         '401':
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+              examples:
+                noAuth:
+                  value:
+                    detail: Authentication credentials were not provided.
         '403':
           description: User is blocked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+              examples:
+                blocked:
+                  value:
+                    detail: User is blocked
         '404':
           description: Listing not found
-  /comments/{{comment_id}}/:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+  /api/comments/{comment_id}/:
     delete:
+      tags: [comments]
+      summary: Delete a comment (soft delete)
       security:
         - bearerAuth: []
-      summary: Delete comment
-      description: Soft delete. Author can delete own comment, staff can delete any. ModerationLog is written.
       parameters:
         - in: path
           name: comment_id
           required: true
-          schema: { type: integer }
+          schema:
+            type: integer
       responses:
-        '204': { description: Deleted }
-        '401': { description: Unauthorized }
-        '403': { description: Forbidden }
-        '404': { description: Not found }
-  /moderation/block-user/:
+        '204':
+          description: Deleted
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+              examples:
+                noAuth:
+                  value:
+                    detail: Authentication credentials were not provided.
+        '403':
+          description: Forbidden (only author or staff)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+              examples:
+                forbidden:
+                  value:
+                    detail: You do not have permission to delete this comment
+        '404':
+          description: Comment not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+              examples:
+                notFound:
+                  value:
+                    detail: Comment not found
+        '422':
+          description: Unprocessable Entity (not used by backend; reserved)
+  /api/moderation/block-user/:
     post:
+      tags: [moderation]
+      summary: Block a user (staff only)
       security:
         - bearerAuth: []
-      summary: Block user (staff only)
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required: [user_id]
-              properties:
-                user_id: { type: integer }
-                reason: { type: string }
+              $ref: '#/components/schemas/BlockUserRequest'
       responses:
         '200':
-          description: OK
+          description: User profile updated (blocked)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/UserProfile'
-        '401': { description: Unauthorized }
-        '403': { description: Forbidden }
-        '404': { description: User not found }
-  /moderation/unblock-user/:
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+        '403':
+          description: Forbidden (staff only)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+              examples:
+                forbidden:
+                  value:
+                    detail: Only staff can perform this action
+        '404':
+          description: Target user not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+              examples:
+                notFound:
+                  value:
+                    detail: User not found
+        '422':
+          description: Unprocessable Entity (not used by backend; reserved)
+  /api/moderation/unblock-user/:
     post:
+      tags: [moderation]
+      summary: Unblock a user (staff only)
       security:
         - bearerAuth: []
-      summary: Unblock user (staff only)
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required: [user_id]
-              properties:
-                user_id: { type: integer }
+              $ref: '#/components/schemas/UnblockUserRequest'
       responses:
         '200':
-          description: OK
+          description: User profile updated (unblocked)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/UserProfile'
-        '401': { description: Unauthorized }
-        '403': { description: Forbidden }
-        '404': { description: User not found }
-components:
-  securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-  schemas:
-    Listing:
-      type: object
-      properties:
-        id: { type: integer }
-        url: { type: string }
-        title: { type: string }
-        image_url: { type: string, nullable: true }
-        price: { type: number, format: double, nullable: true }
-        description: { type: string }
-        published_at: { type: string, format: date-time, nullable: true }
-        views_count: { type: integer }
-        created_at: { type: string, format: date-time }
-        updated_at: { type: string, format: date-time }
-    Comment:
-      type: object
-      properties:
-        id: { type: integer }
-        listing: { type: integer }
-        user_id: { type: integer }
-        user_username: { type: string }
-        text: { type: string }
-        created_at: { type: string, format: date-time }
-    UserProfile:
-      type: object
-      properties:
-        user_id: { type: integer }
-        username: { type: string }
-        is_blocked: { type: boolean }
-        blocked_reason: { type: string, nullable: true }
-        blocked_at: { type: string, format: date-time, nullable: true }
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+        '403':
+          description: Forbidden (staff only)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+              examples:
+                forbidden:
+                  value:
+                    detail: Only staff can perform this action
+        '404':
+          description: Target user not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+              examples:
+                notFound:
+                  value:
+                    detail: User not found
+        '422':
+          description: Unprocessable Entity (not used by backend; reserved)
